@@ -7,17 +7,12 @@ export async function POST(req: Request) {
     const body = await req.json()
     const password = body?.password?.toString?.() ?? ""
 
-    // Compare with environment variable
     if (password && password === process.env.ADMIN_PASSWORD) {
       const res = NextResponse.json({ ok: true })
 
-      // Generate a secure random token
       const token = crypto.randomBytes(32).toString("hex")
-
-      // Save it to the valid tokens store
       addToken(token)
 
-      // Set cookie (secure + HttpOnly)
       res.cookies.set("admin_session", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
