@@ -65,7 +65,7 @@ export function ProductCard({ product }: ProductCardProps) {
         )}
       </CardContent>
       <CardFooter className="p-4 pt-0">
-        <p className="text-lg font-semibold text-primary">${product.price.toFixed(2)}</p>
+        <p className="text-lg font-semibold text-primary">₪{product.price.toFixed(2)}</p>
       </CardFooter>
     </Card>
   )
