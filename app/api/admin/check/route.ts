@@ -1,24 +1,10 @@
+// app/api/admin/check/route.ts
 import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
+import { hasToken } from "../utils/tokens"
 
-// Temporary in-memory token store
-const validTokens = new Set<string>()
-
-// Allow other routes to access these
-export function addToken(token: string) {
-  validTokens.add(token)
-}
-
-export function removeToken(token: string) {
-  validTokens.delete(token)
-}
-
-export async function GET(req: Request) {
-  const cookieHeader = req.headers.get("cookie") || ""
-  const token = cookieHeader.match(/admin_session=([^;]+)/)?.[1]
-
-  if (token && validTokens.has(token)) {
-    return NextResponse.json({ ok: true })
-  } else {
-    return NextResponse.json({ ok: false }, { status: 401 })
-  }
+export async function GET() {
+  const token = cookies().get("admin_session")?.value
+  const ok = token ? hasToken(token) : false
+  return NextResponse.json({ ok })
 }

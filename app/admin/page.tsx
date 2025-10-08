@@ -62,9 +62,10 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [products, setProducts] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [editingProduct, setEditingProduct] = useState<any | null>(null)
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const { toast } = useToast()
 
+  // 🔐 Authentication check
   useEffect(() => {
     fetch("/api/admin/check").then(async (res) => {
       const data = await res.json()
@@ -72,6 +73,7 @@ export default function AdminPage() {
     })
   }, [])
 
+  // 🔑 Login handler
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -80,7 +82,6 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: passwordInput }),
       })
-
       if (res.ok) {
         setIsAuthenticated(true)
         setPasswordError(false)
@@ -88,22 +89,23 @@ export default function AdminPage() {
         setPasswordError(true)
         setPasswordInput("")
       }
-    } catch (err) {
-      console.error(err)
+    } catch {
       setPasswordError(true)
     }
   }
 
+  // 🚪 Logout
   const handleLogout = async () => {
     await fetch("/api/admin/logout", { method: "POST" })
     setIsAuthenticated(false)
     toast({ title: "Logged out", description: "You have been logged out successfully." })
   }
 
+  // 📦 Load products
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "products"), (snapshot) => {
       const items = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      items.sort((a: any, b: any) => {
+      items.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt.seconds ? a.createdAt.seconds * 1000 : a.createdAt).getTime() : 0
         const tb = b.createdAt ? new Date(b.createdAt.seconds ? b.createdAt.seconds * 1000 : b.createdAt).getTime() : 0
         return tb - ta
@@ -113,6 +115,7 @@ export default function AdminPage() {
     return () => unsubscribe()
   }, [])
 
+  // 🧩 Category selection
   const handleCategoryChange = (value: string) => {
     setFormData({ ...formData, category: value, subcategory: "" })
   }
@@ -126,16 +129,121 @@ export default function AdminPage() {
     if (e.target.files && e.target.files[0]) setImageFile(e.target.files[0])
   }
 
+  // ➕ Add product
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      let imageUrl = ""
+      let imagePublicId = ""
+
+      if (imageFile) {
+        const form = new FormData()
+        form.append("file", imageFile)
+        form.append("upload_preset", "unsigned_upload")
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "dgersnzf7"
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: form })
+        const data = await res.json()
+        if (!data.secure_url) throw new Error("Image upload failed")
+        imageUrl = data.secure_url
+        imagePublicId = data.public_id || extractCloudinaryPublicId(data.secure_url) || ""
+      }
+
+      if (!formData.name || !formData.price || !formData.category || !formData.subcategory)
+        throw new Error("Please fill all required fields.")
+
+      await addDoc(collection(db, "products"), {
+        ...formData,
+        price: Number.parseFloat(formData.price),
+        imageUrl,
+        imagePublicId,
+        createdAt: new Date(),
+      })
+
+      toast({ title: "Success!", description: "Product added successfully." })
+      setFormData({ name: "", price: "", description: "", category: "", subcategory: "" })
+      setImageFile(null)
+      if (imageInputRef.current) imageInputRef.current.value = ""
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to add product.", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 🗑️ Delete product
+  const handleDelete = async (product: any) => {
+    if (!confirm("Are you sure you want to delete this product?")) return
+    setLoading(true)
+    try {
+      if (product.imagePublicId) {
+        await fetch("/api/delete-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicId: product.imagePublicId }),
+        })
+      }
+      await deleteDoc(doc(db, "products", product.id))
+      toast({ title: "Deleted", description: "Product deleted successfully." })
+    } catch {
+      toast({ title: "Error", description: "Failed to delete product.", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ✏️ Edit product
   const startEditing = (p: any) => {
-    setEditingProduct({ ...p, price: p.price?.toString?.() ?? "" })
+    setEditingProductId(p.id)
+    setFormData({
+      name: p.name || "",
+      price: p.price?.toString?.() || "",
+      description: p.description || "",
+      category: p.category || "",
+      subcategory: p.subcategory || "",
+    })
     setImageFile(null)
     if (imageInputRef.current) imageInputRef.current.value = ""
   }
 
-  const handleSubmit = async (e: React.FormEvent) => { /* نفس الكود الأصلي */ }
-  const handleDelete = async (product: any) => { /* نفس الكود الأصلي */ }
-  const handleUpdateSubmit = async (e: React.FormEvent) => { /* نفس الكود الأصلي */ }
+  // 💾 Update product
+  const handleUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingProductId) return
+    setLoading(true)
+    try {
+      let updates: any = {
+        ...formData,
+        price: Number.parseFloat(formData.price),
+        updatedAt: new Date(),
+      }
 
+      if (imageFile) {
+        const form = new FormData()
+        form.append("file", imageFile)
+        form.append("upload_preset", "unsigned_upload")
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "dgersnzf7"
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: form })
+        const data = await res.json()
+        if (!data.secure_url) throw new Error("Image upload failed")
+        updates.imageUrl = data.secure_url
+        updates.imagePublicId = data.public_id || extractCloudinaryPublicId(data.secure_url) || ""
+      }
+
+      await updateDoc(doc(db, "products", editingProductId), updates)
+
+      toast({ title: "Updated", description: "Product updated successfully." })
+      setEditingProductId(null)
+      setFormData({ name: "", price: "", description: "", category: "", subcategory: "" })
+      setImageFile(null)
+    } catch {
+      toast({ title: "Error", description: "Failed to update product.", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 🔍 Search
   const filteredProducts = products.filter((p) => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return true
@@ -146,23 +254,54 @@ export default function AdminPage() {
     )
   })
 
+  // 🔐 Login view
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-b from-pink-50 to-white">
-        {/* Login form نفس الكود الأصلي */}
+        <Card className="w-full max-w-md shadow-lg">
+          <CardHeader className="text-center space-y-2">
+            <div className="mx-auto w-16 h-16 rounded-full bg-pink-100 flex items-center justify-center mb-4">
+              <Lock className="h-8 w-8 text-pink-600" />
+            </div>
+            <CardTitle className="text-3xl font-serif">Admin Access</CardTitle>
+            <CardDescription>Enter password to access the Aya Beauty dashboard</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Password</Label>
+                <Input
+                  type="password"
+                  placeholder="Enter admin password"
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value)
+                    setPasswordError(false)
+                  }}
+                  className={passwordError ? "border-destructive" : ""}
+                  required
+                />
+                {passwordError && <p className="text-sm text-destructive">Incorrect password.</p>}
+              </div>
+              <Button type="submit" className="w-full">
+                Access Dashboard
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
+  // 🖥️ Admin Dashboard
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white">
-      {/* Navbar */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md shadow-sm border-b border-pink-100">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-serif text-pink-600">Aya Beauty Dashboard</h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-500 italic">Logged in as Admin</span>
-            <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4" />
               Logout
             </Button>
@@ -171,10 +310,91 @@ export default function AdminPage() {
       </header>
 
       <div className="container mx-auto px-4 py-12 space-y-12">
-        {/* Add/Edit Form */}
-        {/* ... نفس الكود ... */}
+        <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle className="text-2xl font-serif">
+              {editingProductId ? "Edit Product" : "Add New Product"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={editingProductId ? handleUpdateSubmit : handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label>Name</Label>
+                  <Input
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Price</Label>
+                  <Input
+                    type="number"
+                    value={formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
 
-        {/* Search */}
+              <div>
+                <Label>Description</Label>
+                <Textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label>Category</Label>
+                  <Select value={formData.category} onValueChange={handleCategoryChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(CATEGORIES).map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Subcategory</Label>
+                  <Select
+                    value={formData.subcategory}
+                    onValueChange={(v) => setFormData({ ...formData, subcategory: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select subcategory" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(CATEGORIES[formData.category] ?? []).map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label>Image</Label>
+                <Input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageChange} />
+              </div>
+
+              <Button type="submit" disabled={loading}>
+                {editingProductId ? "Update Product" : "Add Product"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
         <div>
           <Input
             placeholder="Search products..."
@@ -184,38 +404,23 @@ export default function AdminPage() {
           />
         </div>
 
-        {/* Product Grid */}
         <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {filteredProducts.map((p) => (
-            <Card key={p.id} className="shadow-sm relative z-10">
-              <CardContent className="p-4 space-y-2 relative">
+            <Card key={p.id} className="shadow-sm">
+              <CardContent className="p-4 space-y-2">
                 {p.imageUrl && (
-                  <img
-                    src={p.imageUrl}
-                    alt={p.name}
-                    className="w-full h-48 object-cover rounded-lg pointer-events-none"
-                  />
+                  <img src={p.imageUrl} alt={p.name} className="w-full h-48 object-cover rounded-lg" />
                 )}
-                <h3 className="text-lg font-medium mt-2">{p.name}</h3>
+                <h3 className="text-lg font-medium">{p.name}</h3>
                 <p className="text-sm text-muted-foreground">
                   {p.category} → {p.subcategory}
                 </p>
                 <p className="font-semibold">₪{p.price}</p>
-                <div className="flex gap-2 mt-3 relative z-50">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => startEditing(p)}
-                    className="relative z-50"
-                  >
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => startEditing(p)}>
                     Edit
                   </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(p)}
-                    className="relative z-50"
-                  >
+                  <Button variant="destructive" size="sm" onClick={() => handleDelete(p)}>
                     Delete
                   </Button>
                 </div>

@@ -1,15 +1,18 @@
+// app/api/admin/login/route.ts
 import { NextResponse } from "next/server"
 import crypto from "crypto"
-import { addToken } from "../check/route"
+import { addToken } from "../utils/tokens"
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
     const password = body?.password?.toString?.() ?? ""
 
+    console.log("ENV PASSWORD:", process.env.ADMIN_PASSWORD)
+    console.log("USER PASSWORD:", password)
+
     if (password && password === process.env.ADMIN_PASSWORD) {
       const res = NextResponse.json({ ok: true })
-
       const token = crypto.randomBytes(32).toString("hex")
       addToken(token)
 
@@ -25,7 +28,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: false }, { status: 401 })
-  } catch {
+  } catch (err) {
+    console.error("Error in login:", err)
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 })
   }
 }
